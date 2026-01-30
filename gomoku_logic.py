@@ -1,143 +1,57 @@
-import numpy as np
-import random
+def ai_move(self):
+        # 1. 공통: 내가 지금 바로 이길 수 있는 수(5목)가 있다면 무조건 둡니다.
+        # (이걸 안 하면 아무리 쉬움이라도 바보처럼 보입니다.)
+        winning_move = self._find_immediate_win(AI)
+        if winning_move: return winning_move
 
-BOARD_SIZE = 15
-EMPTY = 0
-PLAYER = 1
-AI = 2
+        # 2. 난이도별 로직
+        if self.difficulty == "easy":
+            # 상대방의 4목을 50% 확률로만 막습니다. (가끔 실수함)
+            if random.random() < 0.5:
+                threat = self._find_immediate_win(PLAYER)
+                if threat: return threat
+            return self._get_random_move()
 
-class GomokuGame:
-    def __init__(self, difficulty="easy"):
-        self.board = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=int)
-        self.current_player = PLAYER # 1: 사용자, 2: AI
-        self.difficulty = difficulty
+        elif self.difficulty == "medium":
+            # 상대방의 당장 끝나는 수(4목)는 100% 막지만, 
+            # 3목을 만들거나 멀리 내다보는 수읽기는 부족하게 설정합니다.
+            threat = self._find_immediate_win(PLAYER)
+            if threat: return threat
+            return self._get_best_move(defense_weight=0.7) # 하드보다 방어력이 낮음
 
-    def reset_game(self):
-        self.board = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=int)
-        self.current_player = PLAYER
-        return self.board
+        else: # hard
+            return self._get_best_move(defense_weight=1.2)
 
-    def is_valid_move(self, r, c):
-        return 0 <= r < BOARD_SIZE and 0 <= c < BOARD_SIZE and self.board[r, c] == EMPTY
-
-    def make_move(self, r, c, player):
-        if self.is_valid_move(r, c):
-            self.board[r, c] = player
-            return True
-        return False
-
-    def check_win(self, player):
-        # 가로, 세로, 대각선 승리 판정
-        for r in range(BOARD_SIZE):
-            for c in range(BOARD_SIZE):
-                if self.board[r, c] == player:
-                    # 가로
-                    if c + 4 < BOARD_SIZE and np.all(self.board[r, c:c+5] == player):
-                        return True
-                    # 세로
-                    if r + 4 < BOARD_SIZE and np.all(self.board[r:r+5, c] == player):
-                        return True
-                    # 우하향 대각선
-                    if r + 4 < BOARD_SIZE and c + 4 < BOARD_SIZE and \
-                       np.all([self.board[r+i, c+i] == player for i in range(5)]):
-                        return True
-                    # 좌하향 대각선
-                    if r + 4 < BOARD_SIZE and c - 4 >= 0 and \
-                       np.all([self.board[r+i, c-i] == player for i in range(5)]):
-                        return True
-        return False
-
-    def is_board_full(self):
-        return np.all(self.board != EMPTY)
-
-    def get_empty_cells(self):
-        empty_cells = []
+    def _find_immediate_win(self, player):
+        """당장 이길 수 있는 자리가 있는지 찾는 함수"""
         for r in range(BOARD_SIZE):
             for c in range(BOARD_SIZE):
                 if self.board[r, c] == EMPTY:
-                    empty_cells.append((r, c))
-        return empty_cells
-
-    def ai_move(self):
-        if self.difficulty == "easy":
-            return self._ai_easy()
-        elif self.difficulty == "medium":
-            return self._ai_medium()
-        elif self.difficulty == "hard":
-            return self._ai_hard()
-        return self._ai_easy() # 기본값
-
-    def _ai_easy(self):
-        # 무작위로 비어있는 곳에 둡니다.
-        empty_cells = self.get_empty_cells()
-        if empty_cells:
-            return random.choice(empty_cells)
+                    self.board[r, c] = player
+                    if self.check_win(player):
+                        self.board[r, c] = EMPTY
+                        return (r, c)
+                    self.board[r, c] = EMPTY
         return None
 
-    def _ai_medium(self):
-        # 1. 자신의 승리 경로 확인 (이기기)
-        for r, c in self.get_empty_cells():
-            self.board[r, c] = AI
-            if self.check_win(AI):
-                return r, c
-            self.board[r, c] = EMPTY
-
-        # 2. 플레이어의 승리 경로 확인 (막기)
-        for r, c in self.get_empty_cells():
-            self.board[r, c] = PLAYER
-            if self.check_win(PLAYER):
-                self.board[r, c] = EMPTY
-                return r, c
-            self.board[r, c] = EMPTY
-
-        # 3. 무작위로 두기 (기본 전략)
-        return self._ai_easy()
-
-    def _ai_hard(self):
-        # 1. 자신의 승리 경로 확인 (이기기)
-        for r, c in self.get_empty_cells():
-            self.board[r, c] = AI
-            if self.check_win(AI):
-                return r, c
-            self.board[r, c] = EMPTY
-
-        # 2. 플레이어의 승리 경로 확인 (막기)
-        for r, c in self.get_empty_cells():
-            self.board[r, c] = PLAYER
-            if self.check_win(PLAYER):
-                self.board[r, c] = EMPTY
-                return r, c
-            self.board[r, c] = EMPTY
-
-        # 3. 중앙에 가까운 곳에 두기
-        center_r, center_c = BOARD_SIZE // 2, BOARD_SIZE // 2
+    def _get_best_move(self, defense_weight):
+        """점수 기반 최적의 수 찾기"""
+        best_score = -1
+        best_moves = []
         
-        # 중앙 우선순위
-        empty_cells = self.get_empty_cells()
+        for r in range(BOARD_SIZE):
+            for c in range(BOARD_SIZE):
+                if self.board[r, c] == EMPTY:
+                    score = self._evaluate_position(r, c, defense_weight)
+                    if score > best_score:
+                        best_score = score
+                        best_moves = [(r, c)]
+                    elif score == best_score:
+                        best_moves.append((r, c))
         
-        # 중앙에서 가까운 순서로 정렬
-        empty_cells.sort(key=lambda cell: (cell[0] - center_r)**2 + (cell[1] - center_c)**2)
+        return random.choice(best_moves) if best_moves else self._get_random_move()
 
-        for r, c in empty_cells:
-            # 4. 3x3 또는 4x4 형태를 만드는 시도 (매우 기본적인 휴리스틱)
-            # 이 부분은 Minimax나 더 복잡한 알고리즘으로 대체될 수 있습니다.
-            # 여기서는 단순히 근처에 돌이 있으면 우선시하는 정도로 구현합니다.
-            
-            # 주변 8칸에 돌이 있는지 확인
-            has_neighbor = False
-            for dr in [-1, 0, 1]:
-                for dc in [-1, 0, 1]:
-                    if dr == 0 and dc == 0:
-                        continue
-                    nr, nc = r + dr, c + dc
-                    if 0 <= nr < BOARD_SIZE and 0 <= nc < BOARD_SIZE and self.board[nr, nc] != EMPTY:
-                        has_neighbor = True
-                        break
-                if has_neighbor:
-                    break
-            
-            if has_neighbor:
-                return r,c
-            
-        # 모든 전략이 실패하면 무작위
-        return self._ai_easy()
+    def _evaluate_position(self, r, c, defense_weight):
+        attack_score = self._get_score_for_player(r, c, AI)
+        defense_score = self._get_score_for_player(r, c, PLAYER)
+        return attack_score + (defense_score * defense_weight)
